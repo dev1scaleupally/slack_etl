@@ -6,7 +6,19 @@ from datetime import datetime
 from dotenv import load_dotenv
 import re
 import mysql.connector
+import logging
 
+# Set up logs folder and file
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logging.basicConfig(
+    filename=os.path.join(LOG_DIR, "etl_job.log"),
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
+logging.info("ETL Script started")
 # Load environment variables from .env file
 load_dotenv()
 
@@ -27,7 +39,8 @@ HEADERS = {
 }
 
 def fetch_slack_messages(oldest=None):
-    print(f"[{datetime.now()}] Fetching messages...")
+    logging.info(f"[{datetime.now()}] Fetching messages...")
+    
     params = {
         "channel": CHANNEL_ID,
         "limit": 200  # Use a higher limit for efficiency
@@ -44,10 +57,10 @@ def fetch_slack_messages(oldest=None):
         try:
             data = response.json()
         except Exception as e:
-            print(f"Error decoding Slack response: {e}")
+            logging.error(f"Error decoding Slack response: {e}")
             break
         if not data.get("ok", True):
-            print(f"Slack API error: {data.get('error', 'Unknown error')}")
+            logging.error(f"Slack API error: {data.get('error', 'Unknown error')}")
             break
         messages = data.get("messages", [])
         all_messages.extend(messages)
@@ -227,7 +240,7 @@ def insert_lead(lead):
 def etl_job():
     create_db_and_table()
     last_ts = get_last_processed_ts()
-    print(f"Last processed timestamp: {last_ts}")
+    logging.info(f"Last processed timestamp: {last_ts}")
     messages = fetch_slack_messages(oldest=last_ts)
     leads = []
     max_ts = last_ts
@@ -240,11 +253,10 @@ def etl_job():
         msg_ts = msg.get("ts")
         if msg_ts and (max_ts is None or float(msg_ts) > float(max_ts)):
             max_ts = msg_ts
-    
     # Update progress table if new messages were processed
     if max_ts and max_ts != last_ts:
         update_last_processed_ts(max_ts)
-
+    logging.info(f"ETL job completed. Processed {len(leads)} leads.")
 # === RUN ETL JOB IMMEDIATELY ===
 etl_job()
 
