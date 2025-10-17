@@ -33,6 +33,10 @@ MYSQL_USER = os.getenv("MYSQL_USER")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
 
+# Base44 API Configuration
+BASE44_API_URL = os.getenv("BASE44_API_URL", "https://preview--rb2b-scaleup-ally-e78ad0c9.base44.app/api/")
+BASE44_API_KEY = os.getenv("BASE44_API_KEY", "460e332ba24f491d99ba6e76d87f8bd0")
+
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
@@ -213,6 +217,86 @@ def update_last_processed_ts(ts):
     c.close()
     conn.close()
 
+def insert_lead_to_base44(lead):
+    """Insert lead into Base44 API"""
+    try:
+        # Map lead data to Base44 API format
+        base44_lead = {
+            "full_name": lead.get("name", ""),
+            "email": lead.get("email", ""),
+            # "phone": "",  # Not available in current lead structure
+            "company": lead.get("company", ""),
+            "job_title": lead.get("title", ""),
+            "linkedin_url": lead.get("linkedin", ""),
+            "location": lead.get("location", ""),
+            "company_website": lead.get("website", ""),
+            "company_employees": lead.get("est_employees", ""),
+            "company_industry": lead.get("industry", ""),
+            "company_revenue": lead.get("est_revenue", ""),
+            "first_identified_url": lead.get("first_identified_url", ""),
+            "first_identified_datetime": lead.get("first_identified_datetime", ""),
+            "profile_image": lead.get("profile_image", ""),
+            # "tags": None,
+            # "enrichment_status": "pending",
+            # "enrichment_date": datetime.now().isoformat() + "Z",
+            # "enrichment_notes": None,
+            # "lead_score": 0,
+            "source": "slack_etl",
+            "status": "new",
+            # "prompt_tokens": 0,
+            # "completion_tokens": 0,
+            # "batch_id": f"slack-etl-{int(time.time())}"
+        }
+        
+        # Prepare payload
+        payload = {
+            "leads": [base44_lead],
+            "batch_size": 1,
+            "delay_ms": 1000
+        }
+        
+        # Prepare headers
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": BASE44_API_KEY
+        }
+
+        create_lead = BASE44_API_URL+"functions/publicBatchInsertLeads"
+        
+        # Make API request
+        response = requests.post(create_lead, json=payload, headers=headers)
+        
+        try:
+            response_data = response.json()
+            
+            # Check if success is true and total_created is 1
+            if (response_data.get("success") == True and 
+                response_data.get("summary", {}).get("total_created") == 1):
+                
+                # Log the successful lead creation with lead data
+                leads_data = response_data.get("leads", [])
+                if leads_data:
+                    lead_data = leads_data[0]  # Get the first (and only) lead
+                    logging.info(f"Successfully inserted lead to Base44: {lead.get('name', 'Unknown')} from {lead.get('company', 'Unknown')}")
+                    logging.info(f"Lead data returned: {json.dumps(lead_data, indent=2)}")
+                else:
+                    logging.info(f"Successfully inserted lead to Base44: {lead.get('name', 'Unknown')} from {lead.get('company', 'Unknown')}")
+                return True
+            else:
+                logging.warning(f"Lead insertion response indicates issues. Success: {response_data.get('success')}, Total created: {response_data.get('summary', {}).get('total_created')}")
+                return False
+                
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse JSON response from Base44 API: {response.text}. Error: {str(e)}")
+            return False
+        except Exception as e:
+            logging.error(f"Error processing Base44 response: {str(e)}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"Error inserting lead to Base44: {str(e)}")
+        return False
+
 def insert_lead(lead):
     conn = mysql.connector.connect(
         host=MYSQL_HOST,
@@ -248,6 +332,8 @@ def etl_job():
         lead = extract_lead_from_message(msg)
         if lead["name"] and lead["company"]:
             insert_lead(lead)
+            # Also insert to Base44 API
+            insert_lead_to_base44(lead)
             leads.append(lead)
         # Track the max timestamp for incremental load
         msg_ts = msg.get("ts")
