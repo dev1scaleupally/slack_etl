@@ -2,7 +2,7 @@ import requests
 import json
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import re
 import mysql.connector
@@ -78,6 +78,19 @@ def extract_lead_from_message(msg):
     first_url = first_datetime = None
     profile_image = None
     website = industry = est_employees = est_revenue = None
+    message_date_time = None
+    
+    # Extract timestamp from message and convert to UTC datetime
+    ts = msg.get("ts")
+    if ts:
+        try:
+            # Get first 10 digits before decimal point (Unix timestamp)
+            unix_timestamp = int(float(ts))
+            # Convert to UTC datetime
+            message_date_time = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+        except (ValueError, TypeError) as e:
+            logging.warning(f"Failed to parse timestamp {ts}: {str(e)}")
+            message_date_time = None
     blocks = msg.get("blocks", [])
     for block in blocks:
         if block["type"] == "section" and "text" in block and block["text"]["type"] == "mrkdwn":
@@ -144,7 +157,8 @@ def extract_lead_from_message(msg):
         "website": website,
         "industry": industry,
         "est_employees": est_employees,
-        "est_revenue": est_revenue
+        "est_revenue": est_revenue,
+        "message_date_time": message_date_time
     }
 
 def create_db_and_table():
@@ -175,6 +189,19 @@ def create_db_and_table():
             UNIQUE KEY unique_lead (name, company, email)
         )
     ''')
+    
+    # Check if message_date_time column exists, if not create it
+    c.execute("""
+        SELECT COUNT(*) 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = %s 
+        AND TABLE_NAME = 'leads' 
+        AND COLUMN_NAME = 'message_date_time'
+    """, (MYSQL_DATABASE,))
+    
+    column_exists = c.fetchone()[0]
+    if column_exists == 0:
+        c.execute('ALTER TABLE leads ADD COLUMN message_date_time DATETIME NULL')
     # Create etl_progress table for incremental load tracking
     c.execute('''
         CREATE TABLE IF NOT EXISTS etl_progress (
@@ -309,12 +336,12 @@ def insert_lead(lead):
     try:
         c.execute('''
             INSERT IGNORE INTO leads (
-                name, title, company, email, linkedin, location, first_identified_url, first_identified_datetime, profile_image, website, industry, est_employees, est_revenue
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                name, title, company, email, linkedin, location, first_identified_url, first_identified_datetime, profile_image, website, industry, est_employees, est_revenue, message_date_time
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             lead["name"], lead["title"], lead["company"], lead["email"], lead["linkedin"], lead["location"],
             lead["first_identified_url"], lead["first_identified_datetime"], lead["profile_image"], lead["website"],
-            lead["industry"], lead["est_employees"], lead["est_revenue"]
+            lead["industry"], lead["est_employees"], lead["est_revenue"], lead["message_date_time"]
         ))
         conn.commit()
     finally:
