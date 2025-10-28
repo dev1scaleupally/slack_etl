@@ -34,7 +34,7 @@ MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
 
 # Base44 API Configuration
-BASE44_API_URL = os.getenv("BASE44_API_URL", "https://preview--rb2b-scaleup-ally-e78ad0c9.base44.app/api/")
+BASE44_API_URL = os.getenv("BASE44_API_URL", "https://rb2b-scaleup-ally-copy-7f60b8e7.base44.app/api/apps/6900640e6d0d34437f60b8e7/")
 BASE44_API_KEY = os.getenv("BASE44_API_KEY", "460e332ba24f491d99ba6e76d87f8bd0")
 
 HEADERS = {
